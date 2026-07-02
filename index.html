@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>코스피200 · 나스닥100 · S&P500 · 금 50일 이격도 트래커</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+<style>
+:root { color-scheme: light; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
+  background: #f8fafc; color: #1e293b; padding: 16px; font-size: 14px;
+  max-width: 1000px; margin: 0 auto;
+}
+h1 { font-size: 20px; margin-bottom: 4px; }
+.sub { color: #64748b; font-size: 12px; margin-bottom: 16px; }
+h2 { font-size: 15px; margin: 20px 0 10px; }
+#status { color: #64748b; padding: 24px; text-align: center; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; }
+.card .name { font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.card .val { font-size: 26px; font-weight: 800; margin: 6px 0 2px; }
+.card .chg { font-size: 12px; color: #64748b; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; margin-top: 6px; }
+.z-hot   { background: #fee2e2; color: #b91c1c; }
+.z-warn  { background: #ffedd5; color: #c2410c; }
+.z-norm  { background: #dcfce7; color: #15803d; }
+.z-cool  { background: #dbeafe; color: #1d4ed8; }
+.gauge { position: relative; height: 10px; border-radius: 5px; margin-top: 10px; }
+.marker { position: absolute; top: -4px; width: 4px; height: 18px; background: #0f172a; border-radius: 2px; transform: translateX(-50%); }
+.glabels { display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; margin-top: 4px; }
+.thres { font-size: 11px; color: #64748b; margin-top: 8px; line-height: 1.5; }
+.controls { display: flex; gap: 6px; margin: 12px 0; flex-wrap: wrap; }
+.controls button {
+  border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; padding: 4px 12px;
+  font-size: 12px; cursor: pointer; color: #475569;
+}
+.controls button.on { background: #1e293b; color: #fff; border-color: #1e293b; }
+.chart-wrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; height: 360px; }
+.tblwrap { max-height: 480px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 640px; }
+th, td { padding: 7px 10px; text-align: right; font-size: 12px; border-bottom: 1px solid #f1f5f9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+th { background: #f1f5f9; color: #475569; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+th:first-child, td:first-child { text-align: left; width: 92px; }
+.zone-cell { font-size: 11px; font-weight: 700; }
+.guide { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; font-size: 12.5px; line-height: 1.7; color: #475569; }
+.guide b { color: #1e293b; }
+.foot { color: #94a3b8; font-size: 11px; margin-top: 14px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<h1>📊 코스피200 · 나스닥100 · S&amp;P500 · 금 50일 이격도</h1>
+<div class="sub">이격도 = 종가 ÷ 50일 이동평균 × 100 · 구간 기준선은 최근 5년 자체 분포(백분위)로 자동 산출 · <span id="updated"></span></div>
+
+<div id="status">데이터 불러오는 중…</div>
+
+<div id="app" style="display:none">
+  <h2>현재 이격도 위치 <span style="font-weight:400;color:#94a3b8;font-size:11px">각 자산 자기 분포 기준</span></h2>
+  <div class="cards" id="cards"></div>
+
+  <h2>50일 이격도 추이</h2>
+  <div class="controls" id="ranges"></div>
+  <div class="chart-wrap"><canvas id="chart"></canvas></div>
+
+  <h2>최근 기록</h2>
+  <div class="tblwrap"><table id="tbl"></table></div>
+
+  <h2>해석법</h2>
+  <div class="guide">
+    <b>이격도 = 현재가 ÷ 50일 이동평균 × 100.</b> 현재 가격이 최근 50거래일 평균 대비 얼마나 위/아래에 있는지를 나타냅니다.
+    자산마다 변동성 분포가 다르므로, 고정 기준 대신 각 자산의 <b>최근 5년 이격도 분포</b>에서
+    상위 5%(과열), 상위 15%(과열 경계), 하위 10%(과열해소) 지점을 기준선으로 사용합니다.
+    <br><br>
+    · <b>과열</b> (상위 5% 이상): 추격매수 자제<br>
+    · <b>과열 경계</b> (상위 15%~5%): 분할·속도조절 관심<br>
+    · <b>정상</b>: 추세 추종 유효<br>
+    · <b>과열해소</b> (하위 10% 이하): 투매 자제, 분할매수 후보 구간
+  </div>
+
+  <div class="foot">
+    데이터: Yahoo Finance (^KS200 코스피200 · ^NDX 나스닥100 · ^GSPC S&amp;P500 · GC=F 금 선물) · GitHub Actions로 매 거래일 자동 갱신.<br>
+    본 페이지는 정보 제공용이며 투자 권유가 아닙니다. 투자 판단의 책임은 본인에게 있습니다.
+  </div>
+</div>
+
+<script>
+const ASSETS = [
+  { key: 'ks200', name: '코스피200', ticker: '^KS200', color: '#dc2626' },
+  { key: 'ndx',  name: '나스닥100', ticker: '^NDX',  color: '#7c3aed' },
+  { key: 'spx',  name: 'S&P500',   ticker: '^GSPC', color: '#2563eb' },
+  { key: 'gold', name: '금',        ticker: 'GC=F',  color: '#d97706' },
+];
+const RANGES = [ ['3M',63], ['6M',126], ['1Y',252], ['2Y',504], ['5Y',99999] ];
+let chart = null;
+let store = {};
+
+function pct(sorted, p) {
+  const i = (sorted.length - 1) * p;
+  const lo = Math.floor(i), hi = Math.ceil(i);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+}
+function zone(v, th) {
+  if (v >= th.hot) return ['과열', 'z-hot', '#b91c1c'];
+  if (v >= th.warn) return ['과열 경계', 'z-warn', '#c2410c'];
+  if (v <= th.cool) return ['과열해소', 'z-cool', '#1d4ed8'];
+  return ['정상', 'z-norm', '#15803d'];
+}
+function fmtDate(t) { const d = new Date(t); return (d.getMonth()+1) + '/' + d.getDate(); }
+function fmtDateFull(t) {
+  const d = new Date(t);
+  return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + String(d.getDate()).padStart(2,'0');
+}
+
+function buildAsset(a, rows) {
+  // rows: [[epoch_ms, close], ...] sorted ascending
+  const disp = [];
+  let sum = 0;
+  for (let i = 0; i < rows.length; i++) {
+    sum += rows[i][1];
+    if (i >= 50) sum -= rows[i-50][1];
+    if (i >= 49) disp.push({ t: rows[i][0], c: rows[i][1], v: rows[i][1] / (sum/50) * 100 });
+  }
+  const sorted = disp.map(d => d.v).slice().sort((x,y) => x-y);
+  const th = {
+    hot: pct(sorted, 0.95), warn: pct(sorted, 0.85), cool: pct(sorted, 0.10),
+    min: sorted[0], max: sorted[sorted.length-1],
+  };
+  return { ...a, disp, th };
+}
+
+function renderCards() {
+  const el = document.getElementById('cards');
+  el.innerHTML = ASSETS.map(a => {
+    const s = store[a.key];
+    const cur = s.disp[s.disp.length-1];
+    const prev = s.disp[s.disp.length-2];
+    const [zn, zc] = zone(cur.v, s.th);
+    const span = s.th.max - s.th.min;
+    const pos = Math.min(100, Math.max(0, (cur.v - s.th.min) / span * 100));
+    const g = v => ((v - s.th.min) / span * 100).toFixed(1);
+    return `<div class="card">
+      <div class="name"><span class="dot" style="background:${a.color}"></span>${a.name} <span style="color:#94a3b8;font-weight:400">${a.ticker}</span></div>
+      <div class="val">${cur.v.toFixed(1)}</div>
+      <div class="chg">전일 ${prev.v.toFixed(1)} · ${fmtDateFull(cur.t)} 종가 ${cur.c.toLocaleString(undefined,{maximumFractionDigits:1})}</div>
+      <span class="badge ${zc}">${zn}</span>
+      <div class="gauge" style="background:linear-gradient(to right,
+        #93c5fd 0%, #93c5fd ${g(s.th.cool)}%,
+        #86efac ${g(s.th.cool)}%, #86efac ${g(s.th.warn)}%,
+        #fdba74 ${g(s.th.warn)}%, #fdba74 ${g(s.th.hot)}%,
+        #fca5a5 ${g(s.th.hot)}%, #fca5a5 100%)">
+        <div class="marker" style="left:${pos}%"></div>
+      </div>
+      <div class="glabels"><span>${s.th.min.toFixed(0)}</span><span>${s.th.max.toFixed(0)}</span></div>
+      <div class="thres">과열 ≥${s.th.hot.toFixed(1)} · 경계 ≥${s.th.warn.toFixed(1)} · 해소 ≤${s.th.cool.toFixed(1)} <span style="color:#cbd5e1">(5년 분포)</span></div>
+    </div>`;
+  }).join('');
+}
+
+function renderChart(days) {
+  const datasets = ASSETS.map(a => {
+    const s = store[a.key];
+    const cut = s.disp.slice(-days);
+    return {
+      label: a.name, borderColor: a.color, backgroundColor: a.color,
+      data: cut.map(d => ({ x: d.t, y: d.v })),
+      borderWidth: 1.8, pointRadius: 0, pointHitRadius: 6, tension: 0.1,
+    };
+  });
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('chart'), {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      plugins: {
+        legend: { labels: { boxWidth: 12, font: { size: 12 } } },
+        tooltip: {
+          callbacks: {
+            title: items => items.length ? fmtDateFull(items[0].parsed.x) : '',
+            label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2),
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'linear',
+          ticks: { maxTicksLimit: 8, callback: v => fmtDate(v), font: { size: 11 } },
+          grid: { display: false },
+        },
+        y: { ticks: { font: { size: 11 } }, grid: { color: '#f1f5f9' } }
+      }
+    },
+    plugins: [{
+      id: 'line100',
+      afterDraw(c) {
+        const y = c.scales.y.getPixelForValue(100);
+        if (y < c.chartArea.top || y > c.chartArea.bottom) return;
+        const ctx = c.ctx;
+        ctx.save();
+        ctx.strokeStyle = '#94a3b8'; ctx.setLineDash([4,4]); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(c.chartArea.left, y); ctx.lineTo(c.chartArea.right, y); ctx.stroke();
+        ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif';
+        ctx.fillText('100', c.chartArea.right - 22, y - 4);
+        ctx.restore();
+      }
+    }]
+  });
+}
+
+function renderRanges() {
+  const el = document.getElementById('ranges');
+  let saved = '1Y';
+  try { saved = localStorage.getItem('disparity-range') || '1Y'; } catch(e) {}
+  el.innerHTML = RANGES.map(([label]) =>
+    `<button data-r="${label}" class="${label===saved?'on':''}">${label}</button>`).join('');
+  el.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    el.querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    try { localStorage.setItem('disparity-range', b.dataset.r); } catch(e) {}
+    renderChart(RANGES.find(r => r[0] === b.dataset.r)[1]);
+  }));
+  renderChart(RANGES.find(r => r[0] === saved)[1]);
+}
+
+function renderTable() {
+  const n = 60;
+  const set = new Map();
+  for (const a of ASSETS)
+    for (const d of store[a.key].disp.slice(-n-5))
+      set.set(new Date(d.t).toISOString().slice(0,10), d.t);
+  const dates = [...set.values()].sort((a,b) => b-a).slice(0, n);
+  let html = '<tr><th>날짜</th>' + ASSETS.map(a => `<th>${a.name}</th><th>구간</th>`).join('') + '</tr>';
+  html += dates.map(t => {
+    let row = `<tr><td>${fmtDateFull(t)}</td>`;
+    const d0 = new Date(t).toISOString().slice(0,10);
+    for (const a of ASSETS) {
+      const s = store[a.key];
+      const hit = s.disp.slice(-n-8).find(d => new Date(d.t).toISOString().slice(0,10) === d0);
+      if (hit) {
+        const [zn,,zcol] = zone(hit.v, s.th);
+        row += `<td>${hit.v.toFixed(1)}</td><td class="zone-cell" style="color:${zcol}">${zn}</td>`;
+      } else row += '<td>–</td><td>–</td>';
+    }
+    return row + '</tr>';
+  }).join('');
+  document.getElementById('tbl').innerHTML = html;
+}
+
+async function main() {
+  try {
+    const r = await fetch('data.json?t=' + Date.now());
+    if (!r.ok) throw new Error('data.json이 아직 없습니다. GitHub Actions에서 "Update data" 워크플로를 한 번 실행하세요.');
+    const j = await r.json();
+    document.getElementById('updated').textContent = '갱신: ' + (j.updated_kst || j.updated || '');
+    for (const a of ASSETS) {
+      if (!j.series[a.key] || j.series[a.key].length < 60) throw new Error(a.name + ' 데이터 부족');
+      store[a.key] = buildAsset(a, j.series[a.key]);
+    }
+    document.getElementById('status').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    renderCards();
+    renderRanges();
+    renderTable();
+  } catch (e) {
+    document.getElementById('status').textContent = '⚠️ ' + e.message;
+  }
+}
+main();
+</script>
+</body>
+</html>
